@@ -1,0 +1,125 @@
+services:
+  # S3
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: rustfs
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # Web-консоль
+    environment:
+      RUSTFS_ACCESS_KEY: rustfsadmin
+      RUSTFS_SECRET_KEY: rustfsadmin
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_CORS_ALLOWED_ORIGINS: "*"
+      RUSTFS_CONSOLE_CORS_ALLOWED_ORIGINS: "*"
+    volumes:
+      - ./rustfs-data:/data
+    networks:
+      - dwh-net
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/health" ]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+
+  # Создание бакета при первом запуске
+  rustfs-init:
+    image: amazon/aws-cli:latest
+    container_name: rustfs-init
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: rustfsadmin
+      AWS_SECRET_ACCESS_KEY: rustfsadmin
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: >
+      /bin/sh -c "aws --endpoint-url http://rustfs:9000 s3 mb s3://dwh || true"
+    networks:
+      - dwh-net
+
+
+
+  # Spark master
+  spark-master:
+    image: jupyter/pyspark-notebook:spark-3.5.0
+    container_name: spark-master
+    command:
+      - /usr/local/spark/bin/spark-class
+      - org.apache.spark.deploy.master.Master
+      - --host
+      - spark-master
+      - --port
+      - "7077"
+      - --webui-port
+      - "8080"
+    environment:
+      - SPARK_MASTER_HOST=spark-master
+      - SPARK_NO_DAEMONIZE=true
+      - SPARK_LOG_DIR=/tmp/spark-logs
+      - PYSPARK_PYTHON=/opt/conda/bin/python
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    volumes:
+      - ./spark-defaults.conf:/usr/local/spark/conf/spark-defaults.conf:ro
+    networks:
+      - dwh-net
+
+  # Spark worker
+  spark-worker:
+    image: jupyter/pyspark-notebook:spark-3.5.0
+    container_name: spark-worker
+    command:
+      - /usr/local/spark/bin/spark-class
+      - org.apache.spark.deploy.worker.Worker
+      - --webui-port
+      - "8081"
+      - spark://spark-master:7077
+    environment:
+      - SPARK_WORKER_CORES=2
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_NO_DAEMONIZE=true
+      - SPARK_LOG_DIR=/tmp/spark-logs
+      - SPARK_WORKER_DIR=/tmp/spark-worker
+      - PYSPARK_PYTHON=/opt/conda/bin/python
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./spark-defaults.conf:/usr/local/spark/conf/spark-defaults.conf:ro
+    depends_on:
+      - spark-master
+    networks:
+      - dwh-net
+
+
+  # Jupyter
+  jupyter:
+    image: jupyter/pyspark-notebook:spark-3.5.0
+    container_name: jupyter
+    ports:
+      - "8888:8888"
+    environment:
+      - SPARK_MASTER=spark://spark-master:7077
+      - JUPYTER_TOKEN=abcd
+      - JUPYTER_ENABLE_LAB=yes
+      - PYSPARK_PYTHON=/opt/conda/bin/python
+      - PYSPARK_DRIVER_PYTHON=/opt/conda/bin/python
+      - JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+      - SPARK_HOME=/usr/local/spark
+    volumes:
+      - ./notebooks:/home/jovyan/work
+      - ./spark-defaults.conf:/usr/local/spark/conf/spark-defaults.conf:ro
+    depends_on:
+      - spark-master
+      - rustfs
+    networks:
+      - dwh-net
+
+
+networks:
+  dwh-net:
+    driver: bridge
