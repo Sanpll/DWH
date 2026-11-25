@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 .DS_Store
 data/full/
+data/
+docker/constraints-3.11.txt
+notebooks/.ipynb_checkpoints
+README.md
+ASSIGNMENT.md
