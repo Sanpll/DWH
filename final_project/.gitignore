@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.py[cod]
+.sparkStaging/
+spark-warehouse/
+notebooks/generated_demo_*/
+notebooks/.ipynb_checkpoints/
+notebooks/.Trash-50000
+architecture.*
+build_diagram.py
+INFRASTRUCTURE.md
+REQUIREMENTS.md
+data/
